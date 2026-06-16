@@ -1,0 +1,237 @@
+:root {
+  --ink: #1c2430;
+  --muted: #66758a;
+  --paper: #ffffff;
+  --accent: #9a7b4f;
+  --accent-soft: #f4efe7;
+  --line: #d9d2c7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.55;
+}
+
+.cover {
+  margin-bottom: 24px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cover-mark {
+  height: 8px;
+  width: 100%;
+  background: linear-gradient(90deg, #2d3a4a, var(--accent));
+  margin-bottom: 14px;
+}
+
+.cover-meta {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.cover h1 {
+  margin: 0 0 12px 0;
+  font-size: 34px;
+  line-height: 1.15;
+  color: #222b36;
+}
+
+.cover-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  font-size: 11px;
+}
+
+.cover-grid span {
+  display: block;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+  margin-bottom: 2px;
+}
+
+.doc-body {
+  font-size: 13px;
+}
+
+.doc-body h1,
+.doc-body h2,
+.doc-body h3,
+.doc-body h4 {
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #2d3a4a;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  line-height: 1.25;
+}
+
+.doc-body h1 { font-size: 24px; }
+.doc-body h2 { font-size: 20px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.doc-body h3 { font-size: 16px; color: #44556b; }
+.doc-body h4 { font-size: 14px; color: #56657b; }
+
+.doc-body p,
+.doc-body ul,
+.doc-body ol,
+.doc-body table,
+.doc-body pre,
+.doc-body blockquote {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.doc-body ul,
+.doc-body ol {
+  padding-left: 22px;
+}
+
+/* SOP-style exported steps (not true <ol><li>) */
+.doc-body .step-section {
+  display: table;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.doc-body .step-section > .step-number {
+  display: table-cell;
+  width: 2.6em;
+  padding-right: 10px;
+  vertical-align: top;
+  white-space: nowrap;
+  color: var(--accent);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.doc-body .step-section > .step {
+  display: table-cell;
+  vertical-align: top;
+  width: auto;
+}
+
+.doc-body .step.scrollable,
+.doc-body .step-section .scrollable {
+  max-height: none !important;
+  overflow: visible !important;
+  padding-right: 0 !important;
+}
+
+.doc-body ol {
+  list-style-type: decimal !important;
+  list-style-position: outside !important;
+  margin-left: 18px;
+}
+
+.doc-body ol li {
+  display: list-item !important;
+  list-style-type: decimal !important;
+}
+
+.doc-body ol ol {
+  list-style-type: lower-alpha !important;
+}
+
+.doc-body ol ol li {
+  list-style-type: lower-alpha !important;
+}
+
+.doc-body ol ol ol {
+  list-style-type: lower-roman !important;
+}
+
+.doc-body ol ol ol li {
+  list-style-type: lower-roman !important;
+}
+
+.doc-body a {
+  color: #36577c;
+}
+
+.doc-body img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid #e4e8ee;
+  margin: 12px 0;
+}
+
+.doc-body table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+}
+
+.doc-body th,
+.doc-body td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc-body th {
+  background: #2d3a4a;
+  color: #ffffff;
+}
+
+.doc-body tr:nth-child(even) td {
+  background: #fbfaf8;
+}
+
+.doc-body pre,
+.doc-body code {
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.doc-body pre {
+  background: #f6f5f3;
+  border: 1px solid #dfd9cf;
+  border-left: 4px solid var(--accent);
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.doc-body blockquote {
+  margin-left: 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.doc-footer {
+  margin-top: 24px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  font-size: 9px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+@media print {
+  .cover,
+  .doc-body h1,
+  .doc-body h2,
+  .doc-body h3,
+  .doc-body table,
+  .doc-body pre,
+  .doc-body img,
+  .doc-body blockquote {
+    page-break-inside: avoid;
+  }
+}

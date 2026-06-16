@@ -1,0 +1,196 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "salesforceFlowUrl": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "sharepointFlowUrl": {
+      "type": "string",
+      "defaultValue": ""
+    }
+  },
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "itGlueDocId": { "type": "string" },
+            "title": { "type": "string" },
+            "urlName": { "type": "string" },
+            "htmlBody": { "type": "string" },
+            "images": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "originalSrc": { "type": "string" },
+                  "base64": { "type": "string" },
+                  "filename": { "type": "string" }
+                }
+              }
+            },
+            "sourceVersion": { "type": "string" }
+          },
+          "required": ["itGlueDocId", "title", "htmlBody"]
+        }
+      }
+    }
+  },
+  "actions": {
+    "Call_SharePoint": {
+      "type": "Http",
+      "runAfter": {},
+      "inputs": {
+        "method": "POST",
+        "uri": "@parameters('sharepointFlowUrl')",
+        "body": "@triggerBody()"
+      },
+      "runtimeConfiguration": {
+        "contentTransfer": { "transferMode": "Chunked" }
+      }
+    },
+    "SharePoint_Succeeded": {
+      "type": "If",
+      "runAfter": { "Call_SharePoint": ["Succeeded", "Failed", "TimedOut"] },
+      "expression": {
+        "and": [
+          { "equals": ["@outputs('Call_SharePoint')['statusCode']", 200] }
+        ]
+      },
+      "actions": {
+        "Upsert_Mapping_SharePoint_Success": {
+          "type": "Http",
+          "inputs": {
+            "method": "PUT",
+            "uri": "https://@{parameters('storageAccountName')}.table.core.windows.net/DocumentMapping(PartitionKey='@{triggerBody()?['itGlueDocId']}',RowKey='SharePoint')",
+            "authentication": { "type": "ManagedServiceIdentity" },
+            "headers": {
+              "Accept": "application/json",
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "PartitionKey": "@{triggerBody()?['itGlueDocId']}",
+              "RowKey": "SharePoint",
+              "DestinationId": "@{body('Call_SharePoint')?['itemId']}",
+              "SourceVersion": "@{triggerBody()?['sourceVersion']}",
+              "LastSyncedUtc": "@{utcNow()}",
+              "Status": "Success"
+            }
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Upsert_Mapping_SharePoint_Failed": {
+            "type": "Http",
+            "inputs": {
+              "method": "PUT",
+              "uri": "https://@{parameters('storageAccountName')}.table.core.windows.net/DocumentMapping(PartitionKey='@{triggerBody()?['itGlueDocId']}',RowKey='SharePoint')",
+              "authentication": { "type": "ManagedServiceIdentity" },
+              "headers": {
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+              },
+              "body": {
+                "PartitionKey": "@{triggerBody()?['itGlueDocId']}",
+                "RowKey": "SharePoint",
+                "SourceVersion": "@{triggerBody()?['sourceVersion']}",
+                "LastSyncedUtc": "@{utcNow()}",
+                "Status": "Failed"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Call_Salesforce": {
+      "type": "Http",
+      "runAfter": { "SharePoint_Succeeded": ["Succeeded", "Failed"] },
+      "inputs": {
+        "method": "POST",
+        "uri": "@parameters('salesforceFlowUrl')",
+        "body": "@triggerBody()"
+      },
+      "runtimeConfiguration": {
+        "contentTransfer": { "transferMode": "Chunked" }
+      }
+    },
+    "Salesforce_Succeeded": {
+      "type": "If",
+      "runAfter": { "Call_Salesforce": ["Succeeded", "Failed", "TimedOut"] },
+      "expression": {
+        "and": [
+          { "equals": ["@outputs('Call_Salesforce')['statusCode']", 200] }
+        ]
+      },
+      "actions": {
+        "Upsert_Mapping_Salesforce_Success": {
+          "type": "Http",
+          "inputs": {
+            "method": "PUT",
+            "uri": "https://@{parameters('storageAccountName')}.table.core.windows.net/DocumentMapping(PartitionKey='@{triggerBody()?['itGlueDocId']}',RowKey='Salesforce')",
+            "authentication": { "type": "ManagedServiceIdentity" },
+            "headers": {
+              "Accept": "application/json",
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "PartitionKey": "@{triggerBody()?['itGlueDocId']}",
+              "RowKey": "Salesforce",
+              "DestinationId": "@{body('Call_Salesforce')?['knowledgeArticleId']}",
+              "SourceVersion": "@{triggerBody()?['sourceVersion']}",
+              "LastSyncedUtc": "@{utcNow()}",
+              "Status": "Success"
+            }
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Upsert_Mapping_Salesforce_Failed": {
+            "type": "Http",
+            "inputs": {
+              "method": "PUT",
+              "uri": "https://@{parameters('storageAccountName')}.table.core.windows.net/DocumentMapping(PartitionKey='@{triggerBody()?['itGlueDocId']}',RowKey='Salesforce')",
+              "authentication": { "type": "ManagedServiceIdentity" },
+              "headers": {
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+              },
+              "body": {
+                "PartitionKey": "@{triggerBody()?['itGlueDocId']}",
+                "RowKey": "Salesforce",
+                "SourceVersion": "@{triggerBody()?['sourceVersion']}",
+                "LastSyncedUtc": "@{utcNow()}",
+                "Status": "Failed"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Response": {
+      "type": "Response",
+      "runAfter": { "Salesforce_Succeeded": ["Succeeded", "Failed"] },
+      "inputs": {
+        "statusCode": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "itGlueDocId": "@{triggerBody()?['itGlueDocId']}",
+          "sharePointStatus": "@{outputs('Call_SharePoint')['statusCode']}",
+          "salesforceStatus": "@{outputs('Call_Salesforce')['statusCode']}"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

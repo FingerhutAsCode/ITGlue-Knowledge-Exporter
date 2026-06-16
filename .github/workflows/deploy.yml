@@ -1,0 +1,54 @@
+name: Deploy ITGlue Documentation Exporter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write   # required for OIDC federated login
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Bicep
+        run: |
+          az bicep build --file infra/main.bicep
+
+      - name: Deploy infra (storage, connections, logic apps)
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          template: infra/main.bicep
+          parameters: infra/params/${{ inputs.environment || 'dev' }}.bicepparam
+          failOnStdErr: false
+
+      - name: Print post-deploy reminder
+        run: |
+          echo "::notice::Deployment complete. Open the Salesforce and SharePoint API connections in the Azure Portal and complete OAuth consent under 'Edit API connection' before running the workflows. See README.md."

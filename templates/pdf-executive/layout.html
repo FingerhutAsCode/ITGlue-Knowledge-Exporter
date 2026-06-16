@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{TITLE}}</title>
+  <style>{{STYLE_INLINE}}</style>
+</head>
+<body>
+  <header class="cover">
+    <div class="cover-mark"></div>
+    <div class="cover-meta">{{BRAND_NAME}}</div>
+    <h1>{{TITLE}}</h1>
+    <div class="cover-grid">
+      <div><span>Organization</span>{{ORG_NAME}}</div>
+      <div><span>Document ID</span>{{DOC_ID}}</div>
+      <div><span>Generated</span>{{GENERATED_AT}}</div>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    {{BODY_HTML}}
+  </main>
+
+  <footer class="doc-footer">
+    <span>{{BRAND_NAME}}</span>
+    <span>{{DOC_ID}}</span>
+    <span>{{SOURCE_HTML_PATH}}</span>
+  </footer>
+</body>
+</html>

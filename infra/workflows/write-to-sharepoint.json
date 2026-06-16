@@ -1,0 +1,107 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "sharePointSiteUrl": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "$connections": {
+      "type": "object",
+      "defaultValue": {}
+    }
+  },
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "itGlueDocId": { "type": "string" },
+            "title": { "type": "string" },
+            "htmlBody": { "type": "string" },
+            "images": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "originalSrc": { "type": "string" },
+                  "base64": { "type": "string" },
+                  "filename": { "type": "string" }
+                }
+              }
+            }
+          },
+          "required": ["itGlueDocId", "title", "htmlBody"]
+        }
+      }
+    }
+  },
+  "actions": {
+    "Get_Mapping": {
+      "type": "Http",
+      "runAfter": {},
+      "inputs": {
+        "method": "GET",
+        "uri": "https://@{parameters('storageAccountName')}.table.core.windows.net/DocumentMapping(PartitionKey='@{triggerBody()?['itGlueDocId']}',RowKey='SharePoint')",
+        "authentication": { "type": "ManagedServiceIdentity" }
+      }
+    },
+    "Mapping_Exists": {
+      "type": "If",
+      "runAfter": { "Get_Mapping": ["Succeeded", "Failed"] },
+      "expression": {
+        "and": [
+          { "equals": ["@outputs('Get_Mapping')['statusCode']", 200] }
+        ]
+      },
+      "actions": {
+        "Update_File": {
+          "type": "ApiConnection",
+          "description": "PLACEHOLDER: update existing SharePoint file/list item using DestinationId from Get_Mapping. Confirm target library, content type, and whether this is a file upload (new version) vs. a list item field update before finalizing.",
+          "inputs": {
+            "host": {
+              "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionName']" }
+            },
+            "method": "patch",
+            "path": "/_api/v2.0/sites/root/lists/CHANGE_ME/items/@{body('Get_Mapping')?['DestinationId']}"
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Create_File": {
+            "type": "ApiConnection",
+            "description": "PLACEHOLDER: create new SharePoint file/list item. Confirm target library and field mapping before finalizing.",
+            "inputs": {
+              "host": {
+                "connection": { "name": "@parameters('$connections')['sharepointonline']['connectionName']" }
+              },
+              "method": "post",
+              "path": "/_api/v2.0/sites/root/lists/CHANGE_ME/items"
+            }
+          }
+        }
+      }
+    },
+    "Response": {
+      "type": "Response",
+      "runAfter": { "Mapping_Exists": ["Succeeded", "Failed"] },
+      "inputs": {
+        "statusCode": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "itemId": "@{if(equals(outputs('Get_Mapping')['statusCode'], 200), body('Get_Mapping')?['DestinationId'], body('Create_File')?['Id'])}",
+          "status": "Success"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

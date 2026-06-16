@@ -1,0 +1,195 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "salesforceApiVersion": {
+      "type": "string",
+      "defaultValue": "v60.0"
+    },
+    "$connections": {
+      "type": "object",
+      "defaultValue": {}
+    }
+  },
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "itGlueDocId": { "type": "string" },
+            "title": { "type": "string" },
+            "urlName": { "type": "string" },
+            "htmlBody": { "type": "string" },
+            "images": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "originalSrc": { "type": "string" },
+                  "base64": { "type": "string" },
+                  "filename": { "type": "string" }
+                }
+              }
+            }
+          },
+          "required": ["itGlueDocId", "title", "urlName", "htmlBody"]
+        }
+      }
+    }
+  },
+  "actions": {
+    "Get_Mapping": {
+      "type": "Http",
+      "runAfter": {},
+      "inputs": {
+        "method": "GET",
+        "uri": "https://@{parameters('storageAccountName')}.table.core.windows.net/DocumentMapping(PartitionKey='@{triggerBody()?['itGlueDocId']}',RowKey='Salesforce')",
+        "authentication": { "type": "ManagedServiceIdentity" }
+      }
+    },
+    "Initialize_ImageUrlMap": {
+      "type": "InitializeVariable",
+      "runAfter": { "Get_Mapping": ["Succeeded", "Failed"] },
+      "inputs": {
+        "variables": [
+          { "name": "imageUrlMap", "type": "object", "value": {} }
+        ]
+      }
+    },
+    "For_Each_Image": {
+      "type": "Foreach",
+      "runAfter": { "Initialize_ImageUrlMap": ["Succeeded"] },
+      "foreach": "@coalesce(triggerBody()?['images'], createArray())",
+      "actions": {
+        "Create_ContentVersion": {
+          "type": "ApiConnection",
+          "inputs": {
+            "host": {
+              "connection": { "name": "@parameters('$connections')['salesforce']['connectionName']" }
+            },
+            "method": "post",
+            "path": "/v2.0/datasets/default/tables/@{encodeURIComponent('ContentVersion')}/items",
+            "body": {
+              "Title": "@{item()?['filename']}",
+              "PathOnClient": "@{item()?['filename']}",
+              "VersionData": "@{item()?['base64']}"
+            }
+          }
+        },
+        "Set_ImageUrlMap_Entry": {
+          "type": "SetVariable",
+          "runAfter": { "Create_ContentVersion": ["Succeeded"] },
+          "inputs": {
+            "name": "imageUrlMap",
+            "value": "@setProperty(variables('imageUrlMap'), item()?['originalSrc'], concat('/sfc/servlet.shepherd/version/download/', body('Create_ContentVersion')?['Id']))"
+          }
+        }
+      }
+    },
+    "Rewrite_HTML": {
+      "type": "Compose",
+      "runAfter": { "For_Each_Image": ["Succeeded"] },
+      "inputs": "@triggerBody()?['htmlBody']",
+      "description": "PLACEHOLDER: image src rewriting is expected to happen upstream in the IT Glue cleanup step, which has the parsed image list and can do string replace more reliably than nested Logic Apps expressions. This Compose passes htmlBody through unchanged. See README for the recommended approach and the TODO in write-to-salesforce notes."
+    },
+    "Mapping_Exists": {
+      "type": "If",
+      "runAfter": { "Rewrite_HTML": ["Succeeded"] },
+      "expression": {
+        "and": [
+          { "equals": ["@outputs('Get_Mapping')['statusCode']", 200] }
+        ]
+      },
+      "actions": {
+        "Edit_Article": {
+          "type": "ApiConnection",
+          "inputs": {
+            "host": {
+              "connection": { "name": "@parameters('$connections')['salesforce']['connectionName']" }
+            },
+            "method": "patch",
+            "path": "/services/data/@{parameters('salesforceApiVersion')}/support/knowledgeArticles/@{body('Get_Mapping')?['DestinationId']}",
+            "body": { "action": "Edit" }
+          }
+        },
+        "Update_Draft": {
+          "type": "ApiConnection",
+          "runAfter": { "Edit_Article": ["Succeeded"] },
+          "inputs": {
+            "host": {
+              "connection": { "name": "@parameters('$connections')['salesforce']['connectionName']" }
+            },
+            "method": "patch",
+            "path": "/v2.0/datasets/default/tables/@{encodeURIComponent('Knowledge__kav')}/items/@{body('Edit_Article')?['Id']}",
+            "body": {
+              "Article_Body__c": "@{outputs('Rewrite_HTML')}"
+            }
+          }
+        },
+        "Publish_Updated": {
+          "type": "ApiConnection",
+          "runAfter": { "Update_Draft": ["Succeeded"] },
+          "inputs": {
+            "host": {
+              "connection": { "name": "@parameters('$connections')['salesforce']['connectionName']" }
+            },
+            "method": "patch",
+            "path": "/services/data/@{parameters('salesforceApiVersion')}/support/knowledgeArticles/@{body('Get_Mapping')?['DestinationId']}",
+            "body": { "action": "Publish" }
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Create_Draft": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": { "name": "@parameters('$connections')['salesforce']['connectionName']" }
+              },
+              "method": "post",
+              "path": "/v2.0/datasets/default/tables/@{encodeURIComponent('Knowledge__kav')}/items",
+              "body": {
+                "Title": "@{triggerBody()?['title']}",
+                "UrlName": "@{triggerBody()?['urlName']}",
+                "Article_Body__c": "@{outputs('Rewrite_HTML')}"
+              }
+            }
+          },
+          "Publish_New": {
+            "type": "ApiConnection",
+            "runAfter": { "Create_Draft": ["Succeeded"] },
+            "inputs": {
+              "host": {
+                "connection": { "name": "@parameters('$connections')['salesforce']['connectionName']" }
+              },
+              "method": "patch",
+              "path": "/services/data/@{parameters('salesforceApiVersion')}/support/knowledgeArticles/@{body('Create_Draft')?['KnowledgeArticleId']}",
+              "body": { "action": "Publish" }
+            }
+          }
+        }
+      }
+    },
+    "Response": {
+      "type": "Response",
+      "runAfter": { "Mapping_Exists": ["Succeeded", "Failed"] },
+      "inputs": {
+        "statusCode": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "knowledgeArticleId": "@{if(equals(outputs('Get_Mapping')['statusCode'], 200), body('Get_Mapping')?['DestinationId'], body('Create_Draft')?['KnowledgeArticleId'])}",
+          "status": "Success"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

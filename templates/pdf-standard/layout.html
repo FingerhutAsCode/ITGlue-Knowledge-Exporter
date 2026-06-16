@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{TITLE}}</title>
+  <style>{{STYLE_INLINE}}</style>
+</head>
+<body>
+  <header class="doc-header">
+    <div class="brand-bar"></div>
+    <div class="header-grid">
+      <div class="brand-block">
+        <div class="brand-name">{{BRAND_NAME}}</div>
+        <div class="doc-title">{{TITLE}}</div>
+      </div>
+      <div class="meta-block">
+        <img class="meta-logo" src="{{LOGO_URI}}" alt="IT Glue Logo">
+        <div><span class="meta-label">Document ID:</span> {{DOC_ID}}</div>
+        <div><span class="meta-label">Generated:</span> {{GENERATED_AT}}</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    {{BODY_HTML}}
+  </main>
+
+  <footer class="doc-footer">
+    <span>{{BRAND_NAME}}</span>
+    <span>Source: {{SOURCE_HTML_PATH}}</span>
+  </footer>
+</body>
+</html>
