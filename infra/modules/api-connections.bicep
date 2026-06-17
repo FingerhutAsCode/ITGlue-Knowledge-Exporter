@@ -14,6 +14,9 @@ param env string
 param storageAccountName string
 param sharePointSiteUrl string
 
+@description('When true, authenticates against Salesforce sandbox (test.salesforce.com) instead of production (login.salesforce.com).')
+param salesforceSandbox bool = false
+
 // ---------------------------------------------------------------------------
 // Salesforce connection
 // ---------------------------------------------------------------------------
@@ -25,7 +28,9 @@ resource salesforceConnection 'Microsoft.Web/connections@2018-07-01-preview' = {
     api: {
       id: subscriptionResourceId('Microsoft.Web/locations/managedApis', location, 'salesforce')
     }
-    // parameterValues intentionally omitted - OAuth consent completed manually post-deploy
+    parameterValues: {
+      'token:LoginUri': salesforceSandbox ? 'https://test.salesforce.com' : 'https://login.salesforce.com'
+    }
   }
 }
 

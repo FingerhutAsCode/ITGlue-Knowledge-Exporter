@@ -25,6 +25,9 @@ param sharePointSiteUrl string = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_
 @description('Salesforce REST API version used for Knowledge publish/edit actions')
 param salesforceApiVersion string = 'v58.0'
 
+@description('When true, authenticates against Salesforce sandbox (test.salesforce.com) instead of production (login.salesforce.com).')
+param salesforceSandbox bool = false
+
 var storageAccountName = toLower('st${baseName}${env}')
 var tableName = 'DocumentMapping'
 
@@ -50,6 +53,7 @@ module connections 'modules/api-connections.bicep' = {
     env: env
     storageAccountName: storageAccountName
     sharePointSiteUrl: sharePointSiteUrl
+    salesforceSandbox: salesforceSandbox
   }
 }
 
