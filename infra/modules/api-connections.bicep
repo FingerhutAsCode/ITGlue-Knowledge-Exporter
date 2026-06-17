@@ -20,7 +20,7 @@ param salesforceSandbox bool = false
 // ---------------------------------------------------------------------------
 // Salesforce connection
 // ---------------------------------------------------------------------------
-resource salesforceConnection 'Microsoft.Web/connections@2018-07-01-preview' = {
+resource salesforceConnection 'Microsoft.Web/connections@2016-06-01' = {
   name: 'salesforce-connection-${env}'
   location: location
   properties: {
@@ -37,7 +37,7 @@ resource salesforceConnection 'Microsoft.Web/connections@2018-07-01-preview' = {
 // ---------------------------------------------------------------------------
 // SharePoint Online connection
 // ---------------------------------------------------------------------------
-resource sharePointConnection 'Microsoft.Web/connections@2018-07-01-preview' = {
+resource sharePointConnection 'Microsoft.Web/connections@2016-06-01' = {
   name: 'sharepoint-connection-${env}'
   location: location
   properties: {
