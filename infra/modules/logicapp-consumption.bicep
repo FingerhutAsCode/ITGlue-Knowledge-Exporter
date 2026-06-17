@@ -7,8 +7,8 @@ param name string
 
 param location string
 
-@description('Path to the workflow definition JSON, relative to this module file (../../ to repo root, then into infra/ as needed). See callers in main.bicep.')
-param definitionFilePath string
+@description('Workflow definition object loaded by the caller (for example: loadJsonContent(...) in the calling file).')
+param definition object
 
 @description('Values for parameters declared inside the workflow JSON (e.g. storageAccountName, flow URLs). Each value must be wrapped as { value: ... }.')
 param workflowParameters object = {}
@@ -21,7 +21,7 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
   location: location
   properties: {
     state: 'Enabled'
-    definition: loadJsonContent(definitionFilePath)
+    definition: definition
     parameters: union(workflowParameters, connectionsParam)
   }
 }

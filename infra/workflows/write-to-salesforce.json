@@ -59,7 +59,7 @@
       "runAfter": { "Get_Mapping": ["Succeeded", "Failed"] },
       "inputs": {
         "variables": [
-          { "name": "imageUrlMap", "type": "object", "value": {} }
+          { "name": "imageUrlMap", "type": "array", "value": [] }
         ]
       }
     },
@@ -84,11 +84,14 @@
           }
         },
         "Set_ImageUrlMap_Entry": {
-          "type": "SetVariable",
+          "type": "AppendToArrayVariable",
           "runAfter": { "Create_ContentVersion": ["Succeeded"] },
           "inputs": {
             "name": "imageUrlMap",
-            "value": "@setProperty(variables('imageUrlMap'), item()?['originalSrc'], concat('/sfc/servlet.shepherd/version/download/', body('Create_ContentVersion')?['Id']))"
+            "value": {
+              "originalSrc": "@{item()?['originalSrc']}",
+              "newUrl": "@{concat('/sfc/servlet.shepherd/version/download/', body('Create_ContentVersion')?['Id'])}"
+            }
           }
         }
       }

@@ -4,7 +4,7 @@
 // (orchestrator, write-to-salesforce, write-to-sharepoint).
 //
 // Deploy at resource-group scope:
-//   az deployment group create -g rg-itgke-<env> -f infra/main.bicep -p infra/params/<env>.bicepparam
+//   az deployment group create -g rg-itgluesync-<env> -f infra/main.bicep -p infra/params/<env>.bicepparam
 
 @description('Azure region for all resources')
 param location string = resourceGroup().location
@@ -17,7 +17,7 @@ param env string
 @description('Base name used to derive resource names. Keep short - storage account names have a 24 char limit.')
 @minLength(3)
 @maxLength(11)
-param baseName string = 'itgke'
+param baseName string = 'itgluesync'
 
 @description('SharePoint site URL the write-to-sharepoint flow will target. Set after you confirm the target site.')
 param sharePointSiteUrl string = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_ME'
@@ -25,7 +25,10 @@ param sharePointSiteUrl string = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_
 @description('Salesforce REST API version used for Knowledge publish/edit actions')
 param salesforceApiVersion string = 'v58.0'
 
-var storageAccountName = toLower('st${env}${baseName}')
+@description('When true, authenticates against Salesforce sandbox (test.salesforce.com) instead of production (login.salesforce.com).')
+param salesforceSandbox bool = false
+
+var storageAccountName = toLower('st${baseName}${env}')
 var tableName = 'DocumentMapping'
 
 // ---------------------------------------------------------------------------
@@ -48,8 +51,9 @@ module connections 'modules/api-connections.bicep' = {
   params: {
     location: location
     env: env
-    storageAccountName: storageAccountName
-    sharePointSiteUrl: sharePointSiteUrl
+    // storageAccountName: storageAccountName
+    // sharePointSiteUrl: sharePointSiteUrl
+    salesforceSandbox: salesforceSandbox
   }
 }
 
@@ -61,7 +65,7 @@ module salesforceFlow 'modules/logicapp-consumption.bicep' = {
   params: {
     name: 'la-write-to-salesforce-${env}'
     location: location
-    definitionFilePath: 'workflows/write-to-salesforce.json'
+    definition: loadJsonContent('workflows/write-to-salesforce.json')
     workflowParameters: {
       storageAccountName: { value: storageAccountName }
       salesforceApiVersion: { value: salesforceApiVersion }
@@ -91,7 +95,7 @@ module sharepointFlow 'modules/logicapp-consumption.bicep' = {
   params: {
     name: 'la-write-to-sharepoint-${env}'
     location: location
-    definitionFilePath: 'workflows/write-to-sharepoint.json'
+    definition: loadJsonContent('workflows/write-to-sharepoint.json')
     workflowParameters: {
       storageAccountName: { value: storageAccountName }
       sharePointSiteUrl: { value: sharePointSiteUrl }
@@ -121,7 +125,7 @@ module orchestrator 'modules/logicapp-consumption.bicep' = {
   params: {
     name: 'la-orchestrator-${env}'
     location: location
-    definitionFilePath: 'workflows/orchestrator.json'
+    definition: loadJsonContent('workflows/orchestrator.json')
     workflowParameters: {
       storageAccountName: { value: storageAccountName }
       salesforceFlowUrl: { value: salesforceFlow.outputs.triggerUrl }

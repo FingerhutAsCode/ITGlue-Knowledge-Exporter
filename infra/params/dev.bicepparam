@@ -1,6 +1,8 @@
 using '../main.bicep'
 
 param env = 'dev'
-param baseName = 'itgluesync'
+param baseName = 'itgke'
 param sharePointSiteUrl = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_ME'
-param salesforceApiVersion = 'v60.0'
+param salesforceApiVersion = 'v58.0'
+param location = 'centralus'
+param salesforceSandbox = true
