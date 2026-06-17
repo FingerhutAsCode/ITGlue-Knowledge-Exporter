@@ -25,7 +25,7 @@ param sharePointSiteUrl string = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_
 @description('Salesforce REST API version used for Knowledge publish/edit actions')
 param salesforceApiVersion string = 'v58.0'
 
-var storageAccountName = toLower('st${env}${baseName}')
+var storageAccountName = toLower('st${baseName}${env}')
 var tableName = 'DocumentMapping'
 
 // ---------------------------------------------------------------------------
