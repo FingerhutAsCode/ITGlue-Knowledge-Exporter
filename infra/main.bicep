@@ -4,7 +4,7 @@
 // (orchestrator, write-to-salesforce, write-to-sharepoint).
 //
 // Deploy at resource-group scope:
-//   az deployment group create -g rg-itgke-<env> -f infra/main.bicep -p infra/params/<env>.bicepparam
+//   az deployment group create -g rg-itgluesync-<env> -f infra/main.bicep -p infra/params/<env>.bicepparam
 
 @description('Azure region for all resources')
 param location string = resourceGroup().location
@@ -17,7 +17,7 @@ param env string
 @description('Base name used to derive resource names. Keep short - storage account names have a 24 char limit.')
 @minLength(3)
 @maxLength(11)
-param baseName string = 'itgke'
+param baseName string = 'itgluesync'
 
 @description('SharePoint site URL the write-to-sharepoint flow will target. Set after you confirm the target site.')
 param sharePointSiteUrl string = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_ME'
