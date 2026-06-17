@@ -1,9 +1,6 @@
 # ITGlue Sync
 
-Automation that takes a cleaned IT Glue document export and writes it to
-multiple destination systems (Salesforce Knowledge, SharePoint), tracking
-source -> destination document IDs in an Azure Table so future updates know
-whether to create or update a record.
+Automation that takes a cleaned IT Glue document export and writes it to multiple destination systems (Salesforce Knowledge, SharePoint), tracking source -> destination document IDs in an Azure Table so future updates know whether to create or update a record.
 
 ## Architecture
 
