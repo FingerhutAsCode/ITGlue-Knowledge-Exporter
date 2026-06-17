@@ -61,7 +61,7 @@ module salesforceFlow 'modules/logicapp-consumption.bicep' = {
   params: {
     name: 'la-write-to-salesforce-${env}'
     location: location
-    definitionFilePath: 'workflows/write-to-salesforce.json'
+    definition: loadJsonContent('workflows/write-to-salesforce.json')
     workflowParameters: {
       storageAccountName: { value: storageAccountName }
       salesforceApiVersion: { value: salesforceApiVersion }
@@ -91,7 +91,7 @@ module sharepointFlow 'modules/logicapp-consumption.bicep' = {
   params: {
     name: 'la-write-to-sharepoint-${env}'
     location: location
-    definitionFilePath: 'workflows/write-to-sharepoint.json'
+    definition: loadJsonContent('workflows/write-to-sharepoint.json')
     workflowParameters: {
       storageAccountName: { value: storageAccountName }
       sharePointSiteUrl: { value: sharePointSiteUrl }
@@ -121,7 +121,7 @@ module orchestrator 'modules/logicapp-consumption.bicep' = {
   params: {
     name: 'la-orchestrator-${env}'
     location: location
-    definitionFilePath: 'workflows/orchestrator.json'
+    definition: loadJsonContent('workflows/orchestrator.json')
     workflowParameters: {
       storageAccountName: { value: storageAccountName }
       salesforceFlowUrl: { value: salesforceFlow.outputs.triggerUrl }
