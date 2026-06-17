@@ -1,19 +1,16 @@
-# ITGlue Sync
+# ITGlue Knowledge Exporter
 
-Automation that takes a cleaned IT Glue document export and writes it to multiple destination systems (Salesforce Knowledge, SharePoint), tracking source -> destination document IDs in an Azure Table so future updates know whether to create or update a record.
+Automation that exports IT Glue documents, standardizes the html formatting applied, and writes it to multiple destination systems (Salesforce Knowledge, SharePoint), tracking source -> destination document IDs in an Azure Table so future updates know whether to create or update a record.
 
 ## Architecture
 
 ```
-IT Glue export + cleanup (external/existing - not in this repo)
-  -> Orchestrator Logic App (Consumption)
+IT Glue export + cleanup
+  -> Orchestrator Logic App
         -> Get/Set mapping in Azure Table "DocumentMapping"
-        -> Call_SharePoint  -> write-to-sharepoint Logic App (Consumption)
-        -> Call_Salesforce  -> write-to-salesforce Logic App (Consumption)
+        -> Call_SharePoint  -> write-to-sharepoint Logic App
+        -> Call_Salesforce  -> write-to-salesforce Logic App
 ```
-
-All three Logic Apps run on the **Consumption** plan (pay-per-execution, no
-reserved compute) since expected volume is low. See "Cost model" below.
 
 ## Repo layout
 
@@ -64,26 +61,10 @@ Set these in the repo (Settings -> Secrets and variables -> Actions):
 
 ```bash
 # Create app registration
-az ad app create --display-name "github-itgluesync-deploy"
-
-# Note the appId from the output, then create a service principal
-az ad sp create --id <appId>
-
-# Grant Contributor on the target resource group
-az role assignment create \
-  --assignee <appId> \
-  --role Contributor \
-  --scope /subscriptions/<subId>/resourceGroups/<rgName>
-
-# Add federated credential trusting GitHub Actions on main branch
-az ad app federated-credential create \
-  --id <appId> \
-  --parameters '{
-    "name": "github-main",
-    "issuer": "https://token.actions.githubusercontent.com",
-    "subject": "repo:<org>/<repo>:ref:refs/heads/main",
-    "audiences": ["api://AzureADTokenExchange"]
-  }'
+az ad sp create-for-rbac --name "itg-knowledge-exporter" \
+  --role contributor \
+  --scopes /subscriptions/<subId>/resourceGroups/<rgName> \
+  --sdk-auth
 ```
 
 ## Deployment
