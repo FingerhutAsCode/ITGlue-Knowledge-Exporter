@@ -11,8 +11,8 @@
 
 param location string
 param env string
-param storageAccountName string
-param sharePointSiteUrl string
+// param storageAccountName string
+// param sharePointSiteUrl string
 
 @description('When true, authenticates against Salesforce sandbox (test.salesforce.com) instead of production (login.salesforce.com).')
 param salesforceSandbox bool = false

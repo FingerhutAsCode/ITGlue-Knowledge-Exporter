@@ -51,8 +51,8 @@ module connections 'modules/api-connections.bicep' = {
   params: {
     location: location
     env: env
-    storageAccountName: storageAccountName
-    sharePointSiteUrl: sharePointSiteUrl
+    // storageAccountName: storageAccountName
+    // sharePointSiteUrl: sharePointSiteUrl
     salesforceSandbox: salesforceSandbox
   }
 }
