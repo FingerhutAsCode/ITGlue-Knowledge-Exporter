@@ -16,12 +16,14 @@ permissions:
 env:
   AZURE_RESOURCE_GROUP: rg-itglue-exporter
   AZURE_LOCATION: eastus
-  BICEP_PARAM_FILE: infra/dev.bicepparam
+  BICEP_PARAM_FILE: infra/prod.bicepparam
   IMAGE_REPOSITORY: itglue-exporter
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: Production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
