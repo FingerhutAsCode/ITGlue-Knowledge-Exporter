@@ -1,54 +1,78 @@
-name: Deploy ITGlue Documentation Exporter
+name: Deploy IT Glue Exporter
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     paths:
       - 'infra/**'
+      - 'src/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - prod
 
 permissions:
   id-token: write   # required for OIDC federated login
   contents: read
 
+env:
+  AZURE_RESOURCE_GROUP: rg-itglue-exporter
+  AZURE_LOCATION: eastus
+  BICEP_PARAM_FILE: infra/dev.bicepparam
+  IMAGE_REPOSITORY: itglue-exporter
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || 'dev' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure login (OIDC)
+      - name: Azure login (OIDC, no client secret)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Validate Bicep
-        run: |
-          az bicep build --file infra/main.bicep
-
-      - name: Deploy infra (storage, connections, logic apps)
-        uses: azure/arm-deploy@v2
+      - name: Ensure resource group
+        uses: azure/cli@v2
         with:
-          scope: resourcegroup
-          resourceGroupName: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          template: infra/main.bicep
-          parameters: infra/params/${{ inputs.environment || 'dev' }}.bicepparam
-          failOnStdErr: false
+          inlineScript: |
+            az group create \
+              --name "$AZURE_RESOURCE_GROUP" \
+              --location "$AZURE_LOCATION" \
+              --output none
 
-      - name: Print post-deploy reminder
-        run: |
-          echo "::notice::Deployment complete. Open the Salesforce and SharePoint API connections in the Azure Portal and complete OAuth consent under 'Edit API connection' before running the workflows. See README.md."
+      - name: Deploy infrastructure
+        id: infra
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            outputs=$(az deployment group create \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --template-file infra/main.bicep \
+              --parameters "$BICEP_PARAM_FILE" \
+              --query properties.outputs --output json)
+            echo "acrName=$(echo "$outputs" | jq -r .acrName.value)" >> "$GITHUB_OUTPUT"
+            echo "acrLoginServer=$(echo "$outputs" | jq -r .acrLoginServer.value)" >> "$GITHUB_OUTPUT"
+            echo "jobName=$(echo "$outputs" | jq -r .jobName.value)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image (ACR Tasks)
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az acr build \
+              --registry "${{ steps.infra.outputs.acrName }}" \
+              --image "$IMAGE_REPOSITORY:${{ github.sha }}" \
+              --image "$IMAGE_REPOSITORY:latest" \
+              --file src/Dockerfile \
+              src
+
+      - name: Point job at the freshly built image
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az containerapp job update \
+              --name "${{ steps.infra.outputs.jobName }}" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --image "${{ steps.infra.outputs.acrLoginServer }}/$IMAGE_REPOSITORY:${{ github.sha }}" \
+              --output none

@@ -1,174 +1,123 @@
-# ITGlue Knowledge Exporter
+# IT Glue Knowledge Exporter — Export & Generation Service
 
-Automation that exports IT Glue documents, standardizes the html formatting applied, and writes it to multiple destination systems (Salesforce Knowledge, SharePoint), tracking source -> destination document IDs in an Azure Table so future updates know whether to create or update a record.
+This repo is **service 1** of the pipeline: a scheduled job that pulls the IT Glue
+export, processes it into HTML + PDF artifacts, and writes them to blob storage
+along with per-document state in a mapping table. Distribution to SharePoint,
+Salesforce, and other Document Repositories are done via **service 2** and lives separately — the two share only
+the storage account and mapping table as their interconnect.
 
-## Architecture
+The export runs as an **Azure Container Apps Job** (consumption plan) on a daily
+schedule. At 2 vCPU / 4 GiB once a day, the compute sits inside the monthly free
+grant, so the only standing cost is the Basic container registry (~$5/month).
+
+## What gets deployed
+
+- User-assigned managed identity (used for everything — no secrets in code)
+- Storage account with a blob container (`artifacts`) and a table (`DocumentMapping`); shared-key access disabled, identity-only data plane
+- Azure Container Registry (Basic)
+- Key Vault (RBAC) holding the IT Glue API key
+- Log Analytics workspace
+- Container Apps environment + the scheduled export job
+- Role assignments granting the identity: Storage Blob Data Contributor, Storage Table Data Contributor, AcrPull, Key Vault Secrets User
 
 ```
-IT Glue export + cleanup
-  -> Orchestrator Logic App
-        -> Get/Set mapping in Azure Table "DocumentMapping"
-        -> Call_SharePoint  -> write-to-sharepoint Logic App
-        -> Call_Salesforce  -> write-to-salesforce Logic App
+infra/
+  main.bicep                 orchestrates everything
+  modules/                   storage, registry, keyvault, monitoring, container-app-job
+  dev.bicepparam             dev parameters
+  prod.bicepparam            prod parameters
+src/
+  Dockerfile                 PowerShell 7 on Linux (add your deps here)
+  scripts/entrypoint.ps1     <-- DROP YOUR LOGIC HERE
+.github/workflows/deploy.yml OIDC build + deploy
 ```
 
-## Repo layout
+## Where your code goes
 
-```
-itglue-sync/
-├── .github/workflows/deploy.yml      GitHub Actions: Bicep deploy via OIDC
-├── infra/
-│   ├── main.bicep                    Entry point, wires all modules together
-│   ├── modules/
-│   │   ├── storage-table.bicep       Storage account + DocumentMapping table
-│   │   ├── api-connections.bicep     Salesforce + SharePoint API Connections
-│   │   └── logicapp-consumption.bicep  Generic Consumption Logic App module
-│   ├── workflows/
-│   │   ├── orchestrator.json         Parent workflow definition
-│   │   ├── write-to-salesforce.json  Salesforce Knowledge child workflow
-│   │   └── write-to-sharepoint.json  SharePoint child workflow (PLACEHOLDER)
-│   └── params/
-│       ├── dev.bicepparam
-│       └── prod.bicepparam
-└── README.md
-```
+Open `src/scripts/entrypoint.ps1`. Config loading and managed-identity auth are
+already wired; fill in the three TODO sections (pull export, process documents,
+write to blob + table) or call your own scripts from there. Add system packages
+(e.g. a PDF renderer) and PowerShell modules in `src/Dockerfile`.
 
-## Prerequisites
+## One-time setup
 
-- Azure subscription + resource group created ahead of time (this repo does
-  not create the resource group itself; `az group create` first).
-- GitHub repo configured with an Azure AD app registration + federated
-  credential for OIDC login (no client secret stored in GitHub). See
-  "GitHub OIDC setup" below.
-- Salesforce: a Connected App configured for OAuth (interactive), Knowledge
-  enabled, article type `Knowledge__kav` with rich text field
-  `Article_Body__c` (confirmed correct for this org).
-- SharePoint: target site/library decided (not yet finalized - see
-  "Known gaps").
+### 1. Create the GitHub OIDC identity in Azure
 
-## GitHub secrets required
-
-Set these in the repo (Settings -> Secrets and variables -> Actions):
-
-| Secret | Description |
-|---|---|
-| `AZURE_CLIENT_ID` | App registration (federated credential) client ID |
-| `AZURE_TENANT_ID` | Azure AD tenant ID |
-| `AZURE_SUBSCRIPTION_ID` | Target subscription ID |
-| `AZURE_RESOURCE_GROUP` | Resource group the resources deploy into |
-
-### GitHub OIDC setup (one-time, in Azure)
+Register an app (or use a service principal) and add a federated credential for
+this repo, then grant it rights on the subscription or a resource group.
 
 ```bash
-# Create app registration
-az ad sp create-for-rbac --name "itg-knowledge-exporter" \
-  --role contributor \
-  --scopes /subscriptions/<subId>/resourceGroups/<rgName> \
-  --sdk-auth
+az ad app create --display-name "gh-itglue-exporter"
+# capture the appId, then create a service principal for it:
+az ad sp create --id <appId>
+
+# Federated credential for pushes to main:
+az ad app federated-credential create --id <appId> --parameters '{
+  "name": "gh-main",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:FingerhutAsCode/ITGlue-Knowledge-Exporter:ref:refs/heads/main",
+  "audiences": ["api://AzureADTokenExchange"]
+}'
 ```
 
-## Deployment
-
-Push to `main` (with changes under `infra/`) triggers the workflow, or run it
-manually via the Actions tab ("Run workflow" -> choose environment).
+> **Important:** the template creates role assignments, so the deploying identity
+> needs `Owner`, or `Contributor` **plus** `User Access Administrator`, on the
+> target scope. `Contributor` alone cannot assign roles and the deploy will fail.
 
 ```bash
-# Local/manual equivalent
-az deployment group create \
-  -g <resource-group> \
-  -f infra/main.bicep \
-  -p infra/params/dev.bicepparam
+az role assignment create --assignee <appId> --role "Owner" \
+  --scope /subscriptions/<subId>/resourceGroups/rg-itglue-exporter
 ```
 
-## Required manual steps after first deploy
+(If the resource group doesn't exist yet, scope to the subscription for the first
+run, or create the group manually first.)
 
-These cannot be automated through ARM/Bicep and must be done once per
-environment, in the Azure Portal:
+### 2. Add GitHub repo secrets
 
-1. **Salesforce API connection OAuth consent**
-   Resource Group -> `salesforce-connection-<env>` -> **Edit API connection**
-   -> Authorize -> sign in with the Salesforce service/integration account.
+In the repo settings → Secrets and variables → Actions:
 
-2. **SharePoint API connection OAuth consent**
-   Resource Group -> `sharepoint-connection-<env>` -> **Edit API connection**
-   -> Authorize -> sign in with the SharePoint service account.
+- `AZURE_CLIENT_ID` — the app's appId
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
 
-3. **Grant the orchestrator's managed identity access to Table Storage**
-   The orchestrator and both child workflows call Azure Table Storage
-   directly via `authentication: ManagedServiceIdentity` (not the managed
-   Table Storage connector) to avoid provisioning a 3rd API connection.
-   Each Logic App needs a **system-assigned managed identity** enabled, and
-   that identity needs the **Storage Table Data Contributor** role on the
-   storage account:
+### 3. Set the IT Glue API key
 
-   ```bash
-   # Enable system-assigned identity (if not already on by default - confirm
-   # in portal under each Logic App -> Identity)
-   az resource update \
-     --ids <logicAppResourceId> \
-     --set identity.type=SystemAssigned
+The Bicep does not store the key by default (the param stays `REPLACE_ME`, so
+redeploys never clobber it). After the first deploy, set it once:
 
-   # Get the principal ID, then grant the role
-   az role assignment create \
-     --assignee <principalId> \
-     --role "Storage Table Data Contributor" \
-     --scope <storageAccountResourceId>
-   ```
+```bash
+az keyvault secret set \
+  --vault-name <keyVaultName-from-deploy-output> \
+  --name itglue-api-key \
+  --value "<your IT Glue API key>"
+```
 
-   Do this for the orchestrator, write-to-salesforce, and write-to-sharepoint
-   Logic Apps (each makes its own Table Storage calls).
+(Alternatively, pass `itglueApiKey` from a GitHub secret in the workflow for
+fully-automated provisioning.)
 
-## Known gaps / things to confirm before production use
+## Deploy
 
-- **write-to-sharepoint.json is a structural placeholder.** It mirrors the
-  get-mapping -> branch -> create/update -> respond shape so the orchestrator
-  integration works end-to-end, but the actual SharePoint actions
-  (`Update_File` / `Create_File`) have `CHANGE_ME` paths and need the real
-  target site, library, and field mapping filled in.
+Push to `main` (or run the workflow manually). The pipeline:
 
-- **Image `<img src>` rewriting happens in `Rewrite_HTML` as a no-op
-  placeholder.** The recommended approach is to do the HTML string
-  replacement in the upstream IT Glue cleanup step (which already has the
-  parsed image list) rather than inside Logic Apps expressions, which get
-  unreadable fast for N image replacements. If you want it done inside the
-  Salesforce child flow instead, this needs to be built out before go-live.
+1. Logs in with OIDC (no client secret)
+2. Ensures the resource group
+3. Deploys the Bicep (creates the registry on first run; the job starts on the
+   public placeholder image)
+4. Builds and pushes your image with ACR Tasks (`az acr build` — no Docker needed
+   on the runner)
+5. Points the job at the freshly built image tag
 
-- **Salesforce image URL pattern is unconfirmed.**
-  `/sfc/servlet.shepherd/version/download/{ContentVersionId}` is the
-  best-documented guess for an inline-renderable image URL inside a
-  Knowledge Article body, but the exact accessible URL format can vary by
-  org sharing configuration. Before relying on this in production: manually
-  upload one image into a real Knowledge Article via the Salesforce UI rich
-  text editor and confirm the resulting `<img src="...">` pattern matches.
+The job then runs on its daily schedule. To trigger a run on demand for testing:
 
-- **Knowledge rich text field length limit (~131,072 characters).** Worth a
-  sanity check against your largest IT Glue articles once images are
-  swapped to short URLs instead of inline base64.
+```bash
+az containerapp job start --name <jobName> --resource-group rg-itglue-exporter
+```
 
-- **`sharePointSiteUrl` and Salesforce API version are placeholder values**
-  in both `.bicepparam` files - update before deploying to a real
-  environment.
+## Notes
 
-## Cost model (Consumption plan)
-
-No reserved infrastructure cost. You pay per execution:
-
-- First 4,000 built-in actions/month free; $0.000025/action after that.
-- Standard connector calls (SharePoint): $0.000125/call.
-- Premium connector calls (Salesforce): $0.001/call.
-- Run history/data retention: $0.12/GB/month.
-
-At low/occasional sync volume this is expected to be a few dollars a month
-at most. Each end-to-end sync produces 3 separate Logic App run histories
-(orchestrator + 2 children), each billed independently.
-
-## Mapping table schema (`DocumentMapping`)
-
-| Field | Description |
-|---|---|
-| `PartitionKey` | IT Glue document ID |
-| `RowKey` | Target system name (`Salesforce`, `SharePoint`) |
-| `DestinationId` | Record ID in the target system (Salesforce: `KnowledgeArticleId`; SharePoint: list item ID) |
-| `SourceVersion` | IT Glue document version / updated-at |
-| `LastSyncedUtc` | ISO 8601 timestamp of last sync attempt |
-| `Status` | `Success` \| `Failed` \| `Pending` |
+- The free Container Apps grant is **per subscription**, shared across all
+  consumption workloads in it — heavy neighbours reduce your free run budget.
+- Use your regional IT Glue endpoint in the param file if you're not on the
+  default (`https://api.eu.itglue.com`, etc.).
+- The IT Glue document body/attachments aren't available through the per-resource
+  API — the account export (the ZIP this job downloads) is the supported path.

@@ -1,145 +1,154 @@
-// main.bicep
-// Entry point for the ITGlue -> SharePoint/Salesforce sync solution.
-// Deploys: Table Storage (document mapping), API connections, and 3 Consumption Logic Apps
-// (orchestrator, write-to-salesforce, write-to-sharepoint).
-//
-// Deploy at resource-group scope:
-//   az deployment group create -g rg-itgluesync-<env> -f infra/main.bicep -p infra/params/<env>.bicepparam
+targetScope = 'resourceGroup'
 
-@description('Azure region for all resources')
+// ---------------------------------------------------------------------------
+// Parameters
+// ---------------------------------------------------------------------------
+
+@description('Short prefix used to name resources. Lowercase letters and hyphens.')
+param namePrefix string = 'itglue-exporter'
+
+@description('Azure region for all resources.')
 param location string = resourceGroup().location
 
-@description('Environment short name, used in resource naming (e.g. dev, test, prod)')
-@minLength(2)
-@maxLength(10)
-param env string
+@description('Environment label used in tags (e.g. dev, prod).')
+param envTag string = 'dev'
 
-@description('Base name used to derive resource names. Keep short - storage account names have a 24 char limit.')
-@minLength(3)
-@maxLength(11)
-param baseName string = 'itgluesync'
+@description('Cron expression for the daily export run, in UTC. Default 06:00 UTC.')
+param cronExpression string = '0 6 * * *'
 
-@description('SharePoint site URL the write-to-sharepoint flow will target. Set after you confirm the target site.')
-param sharePointSiteUrl string = 'https://CHANGE_ME.sharepoint.com/sites/CHANGE_ME'
+@description('vCPU cores for the job replica (string to allow fractional). Pairs 1 vCPU : 2Gi.')
+param cpuCores string = '2.0'
 
-@description('Salesforce REST API version used for Knowledge publish/edit actions')
-param salesforceApiVersion string = 'v58.0'
+@description('Memory for the job replica.')
+param memory string = '4Gi'
 
-@description('When true, authenticates against Salesforce sandbox (test.salesforce.com) instead of production (login.salesforce.com).')
-param salesforceSandbox bool = false
+@description('Max seconds a single execution may run before being stopped.')
+param replicaTimeoutSeconds int = 3600
 
-var storageAccountName = toLower('st${baseName}${env}')
-var tableName = 'DocumentMapping'
+@description('Number of retries for a failed execution.')
+param replicaRetryLimit int = 1
+
+@description('Container image the job runs. The pipeline overrides this with the freshly built tag.')
+param containerImage string = 'mcr.microsoft.com/k8se/quickstart-jobs:latest'
+
+@description('Base URL for the IT Glue API (use your regional endpoint, e.g. https://api.eu.itglue.com).')
+param itglueApiBaseUrl string = 'https://api.itglue.com'
+
+@description('Optional IT Glue API key. Leave as REPLACE_ME to manage the secret manually after deploy.')
+@secure()
+param itglueApiKey string = 'REPLACE_ME'
+
+@description('Blob container that receives generated artifacts.')
+param blobContainerName string = 'artifacts'
+
+@description('Table Storage table used as the document mapping store.')
+param mappingTableName string = 'DocumentMapping'
 
 // ---------------------------------------------------------------------------
-// Storage account + mapping table
+// Naming
 // ---------------------------------------------------------------------------
-module storage 'modules/storage-table.bicep' = {
-  name: 'storage-${env}'
+
+var rawName = toLower(replace(namePrefix, '-', ''))
+var uniq = uniqueString(resourceGroup().id)
+
+var storageAccountName = take('${take(rawName, 9)}st${uniq}', 24)
+var registryName = take('${rawName}acr${uniq}', 50)
+var keyVaultName = take('${take(rawName, 6)}kv${uniq}', 24)
+var logAnalyticsName = '${namePrefix}-logs'
+var caeName = '${namePrefix}-cae'
+var jobName = '${namePrefix}-export-job'
+var identityName = '${namePrefix}-id'
+
+var tags = {
+  workload: 'itglue-knowledge-exporter'
+  service: 'export-generation'
+  environment: envTag
+}
+
+// ---------------------------------------------------------------------------
+// Resources
+// ---------------------------------------------------------------------------
+
+// Shared user-assigned identity: ACR pull + storage data plane + Key Vault read.
+resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: identityName
+  location: location
+  tags: tags
+}
+
+module monitoring 'modules/monitoring.bicep' = {
+  name: 'monitoring'
   params: {
+    logAnalyticsName: logAnalyticsName
     location: location
+    tags: tags
+  }
+}
+
+module registry 'modules/registry.bicep' = {
+  name: 'registry'
+  params: {
+    registryName: registryName
+    location: location
+    tags: tags
+    principalId: identity.properties.principalId
+  }
+}
+
+module storage 'modules/storage.bicep' = {
+  name: 'storage'
+  params: {
     storageAccountName: storageAccountName
-    tableName: tableName
-  }
-}
-
-// ---------------------------------------------------------------------------
-// API connections (Salesforce, SharePoint, Azure Tables)
-// ---------------------------------------------------------------------------
-module connections 'modules/api-connections.bicep' = {
-  name: 'connections-${env}'
-  params: {
     location: location
-    env: env
-    // storageAccountName: storageAccountName
-    // sharePointSiteUrl: sharePointSiteUrl
-    salesforceSandbox: salesforceSandbox
+    tags: tags
+    blobContainerName: blobContainerName
+    mappingTableName: mappingTableName
+    principalId: identity.properties.principalId
   }
 }
 
-// ---------------------------------------------------------------------------
-// Logic App: write-to-salesforce (child workflow)
-// ---------------------------------------------------------------------------
-module salesforceFlow 'modules/logicapp-consumption.bicep' = {
-  name: 'la-salesforce-${env}'
+module keyvault 'modules/keyvault.bicep' = {
+  name: 'keyvault'
   params: {
-    name: 'la-write-to-salesforce-${env}'
+    keyVaultName: keyVaultName
     location: location
-    definition: loadJsonContent('workflows/write-to-salesforce.json')
-    workflowParameters: {
-      storageAccountName: { value: storageAccountName }
-      salesforceApiVersion: { value: salesforceApiVersion }
-    }
-    connectionsParam: {
-      '$connections': {
-        value: {
-          salesforce: {
-            connectionId: connections.outputs.salesforceConnectionId
-            connectionName: connections.outputs.salesforceConnectionName
-            id: connections.outputs.salesforceManagedApiId
-          }
-        }
-      }
-    }
+    tags: tags
+    principalId: identity.properties.principalId
+    itglueApiKey: itglueApiKey
   }
-  dependsOn: [
-    storage
-  ]
 }
 
-// ---------------------------------------------------------------------------
-// Logic App: write-to-sharepoint (child workflow)
-// ---------------------------------------------------------------------------
-module sharepointFlow 'modules/logicapp-consumption.bicep' = {
-  name: 'la-sharepoint-${env}'
+module job 'modules/container-app-job.bicep' = {
+  name: 'container-app-job'
   params: {
-    name: 'la-write-to-sharepoint-${env}'
+    caeName: caeName
+    jobName: jobName
     location: location
-    definition: loadJsonContent('workflows/write-to-sharepoint.json')
-    workflowParameters: {
-      storageAccountName: { value: storageAccountName }
-      sharePointSiteUrl: { value: sharePointSiteUrl }
-    }
-    connectionsParam: {
-      '$connections': {
-        value: {
-          sharepointonline: {
-            connectionId: connections.outputs.sharePointConnectionId
-            connectionName: connections.outputs.sharePointConnectionName
-            id: connections.outputs.sharePointManagedApiId
-          }
-        }
-      }
-    }
-  }
-  dependsOn: [
-    storage
-  ]
-}
-
-// ---------------------------------------------------------------------------
-// Logic App: orchestrator (parent workflow - calls both children sequentially)
-// ---------------------------------------------------------------------------
-module orchestrator 'modules/logicapp-consumption.bicep' = {
-  name: 'la-orchestrator-${env}'
-  params: {
-    name: 'la-orchestrator-${env}'
-    location: location
-    definition: loadJsonContent('workflows/orchestrator.json')
-    workflowParameters: {
-      storageAccountName: { value: storageAccountName }
-      salesforceFlowUrl: { value: salesforceFlow.outputs.triggerUrl }
-      sharepointFlowUrl: { value: sharepointFlow.outputs.triggerUrl }
-    }
-    connectionsParam: {}
+    tags: tags
+    logAnalyticsName: monitoring.outputs.name
+    identityResourceId: identity.id
+    identityClientId: identity.properties.clientId
+    registryLoginServer: registry.outputs.loginServer
+    keyVaultSecretUri: keyvault.outputs.secretUri
+    storageAccountName: storage.outputs.storageAccountName
+    blobContainerName: blobContainerName
+    mappingTableName: mappingTableName
+    itglueApiBaseUrl: itglueApiBaseUrl
+    containerImage: containerImage
+    cpuCores: cpuCores
+    memory: memory
+    cronExpression: cronExpression
+    replicaTimeoutSeconds: replicaTimeoutSeconds
+    replicaRetryLimit: replicaRetryLimit
   }
 }
 
 // ---------------------------------------------------------------------------
-// Outputs
+// Outputs (consumed by the GitHub Actions workflow)
 // ---------------------------------------------------------------------------
-output storageAccountName string = storageAccountName
-output orchestratorTriggerUrl string = orchestrator.outputs.triggerUrl
-output salesforceFlowName string = salesforceFlow.outputs.logicAppName
-output sharepointFlowName string = sharepointFlow.outputs.logicAppName
-output postDeploySteps string = 'Open the salesforce-connection and sharepoint-connection resources in the portal under "Edit API connection" to complete OAuth consent. See README.md.'
+
+output acrName string = registry.outputs.registryName
+output acrLoginServer string = registry.outputs.loginServer
+output jobName string = job.outputs.jobName
+output storageAccountName string = storage.outputs.storageAccountName
+output keyVaultName string = keyvault.outputs.vaultName
